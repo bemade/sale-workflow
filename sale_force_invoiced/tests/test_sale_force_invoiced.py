@@ -5,6 +5,13 @@ from odoo.tests.common import TransactionCase
 
 
 class TestSaleForceInvoiced(TransactionCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.env["account.chart.template"].try_loading(
+            "generic_coa", company=cls.env.company, install_demo=False
+        )
+
     def setUp(self):
         super().setUp()
         self.sale_order_model = self.env["sale.order"]
