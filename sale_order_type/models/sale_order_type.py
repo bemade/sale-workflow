@@ -6,9 +6,12 @@ from odoo import api, fields, models
 class SaleOrderTypology(models.Model):
     _name = "sale.order.type"
     _description = "Type of sale order"
+    _order = "sequence, id"
     _check_company_auto = True
+    _inherit = ["analytic.mixin"]
 
     name = fields.Char(required=True, translate=True)
+    sequence = fields.Integer(default=10)
     description = fields.Text(translate=True)
     sequence_id = fields.Many2one(
         comodel_name="ir.sequence",
@@ -19,8 +22,7 @@ class SaleOrderTypology(models.Model):
     journal_id = fields.Many2one(
         comodel_name="account.journal",
         string="Billing Journal",
-        domain="[('type', '=', 'sale'), '|', ('company_id', '=', False), "
-        "('company_id', '=', company_id)]",
+        domain="[('type', '=', 'sale')]",
         check_company=True,
     )
     warehouse_id = fields.Many2one(
@@ -45,16 +47,26 @@ class SaleOrderTypology(models.Model):
         comodel_name="product.pricelist", string="Pricelist", check_company=True
     )
     incoterm_id = fields.Many2one(comodel_name="account.incoterms", string="Incoterm")
+    user_id = fields.Many2one(
+        comodel_name="res.users",
+        string="Salesperson",
+        check_company=True,
+        domain=lambda self: (
+            "[('all_group_ids', 'in', {}), ('share', '=', False)]".format(
+                self.env.ref("sales_team.group_sale_salesman").ids
+            )
+        ),
+    )
+    team_id = fields.Many2one(
+        comodel_name="crm.team",
+        string="Sales Team",
+        check_company=True,
+    )
     route_ids = fields.Many2many(
         "stock.route",
         string="Routes",
         domain=[("sale_selectable", "=", True)],
         ondelete="restrict",
-        check_company=True,
-    )
-    analytic_account_id = fields.Many2one(
-        comodel_name="account.analytic.account",
-        string="Analytic account",
         check_company=True,
     )
     active = fields.Boolean(default=True)

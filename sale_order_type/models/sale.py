@@ -115,6 +115,24 @@ class SaleOrder(models.Model):
         return res
 
     @api.depends("type_id")
+    def _compute_user_id(self):
+        res = super()._compute_user_id()
+        for order in self.filtered("type_id"):
+            order_type = order.type_id
+            if order_type.user_id:
+                order.user_id = order_type.user_id
+        return res
+
+    @api.depends("type_id")
+    def _compute_team_id(self):
+        res = super()._compute_team_id()
+        for order in self.filtered("type_id"):
+            order_type = order.type_id
+            if order_type.team_id:
+                order.team_id = order_type.team_id
+        return res
+
+    @api.depends("type_id")
     def _compute_incoterm(self):
         res = None
         if hasattr(super(), "_compute_incoterm"):
@@ -145,7 +163,9 @@ class SaleOrder(models.Model):
                 sale_type = self.env["sale.order.type"].browse(vals["type_id"])
                 if sale_type.sequence_id:
                     vals["name"] = sale_type.sequence_id.next_by_id(
-                        sequence_date=vals.get("date_order")
+                        sequence_date=fields.Datetime.to_datetime(
+                            vals.get("date_order")
+                        )
                     )
         return super().create(vals_list)
 
@@ -171,7 +191,9 @@ class SaleOrder(models.Model):
                     ):
                         new_vals = vals.copy()
                         new_vals["name"] = sale_type.sequence_id.next_by_id(
-                            sequence_date=vals.get("date_order")
+                            sequence_date=fields.Datetime.to_datetime(
+                                vals.get("date_order")
+                            )
                         )
                         super().write(new_vals)
                     else:
@@ -204,4 +226,11 @@ class SaleOrderLine(models.Model):
             order_type = line.order_id.type_id
             if order_type.route_ids:
                 line.route_ids = order_type.route_ids
+        return res
+
+    @api.depends("order_id.type_id")
+    def _compute_analytic_distribution(self):
+        res = super()._compute_analytic_distribution()
+        for line in self.filtered("order_id.type_id.analytic_distribution"):
+            line.analytic_distribution = line.order_id.type_id.analytic_distribution
         return res

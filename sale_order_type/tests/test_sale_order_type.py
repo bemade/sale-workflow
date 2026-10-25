@@ -59,6 +59,16 @@ class TestSaleOrderType(BaseCommon):
             {"name": "Public Pricelist", "sequence": 1}
         )
         cls.free_carrier = cls.env.ref("account.incoterm_FCA")
+        cls.salesperson = cls.env["res.users"].create(
+            {
+                "name": "Test SOT Salesperson",
+                "login": "test_sot_salesperson",
+                "group_ids": [
+                    (4, cls.env.ref("sales_team.group_sale_salesman").id),
+                ],
+            }
+        )
+        cls.sales_team = cls.env["crm.team"].create({"name": "Test SOT Team"})
         cls.sale_type = cls.sale_type_model.create(
             {
                 "name": "Test Sale Order Type",
@@ -70,6 +80,8 @@ class TestSaleOrderType(BaseCommon):
                 "pricelist_id": cls.sale_pricelist.id,
                 "incoterm_id": cls.free_carrier.id,
                 "quotation_validity_days": 10,
+                "user_id": cls.salesperson.id,
+                "team_id": cls.sales_team.id,
             }
         )
         cls.sale_type_quot = cls.sale_type_model.create(
@@ -129,6 +141,25 @@ class TestSaleOrderType(BaseCommon):
                 "route_ids": [(6, 0, [cls.sale_route.id])],
             }
         )
+        cls.analytic_plan = cls.env["account.analytic.plan"].create(
+            {"name": "Test Plan"}
+        )
+        cls.analytic_account = cls.env["account.analytic.account"].create(
+            {"name": "Test Analytic", "plan_id": cls.analytic_plan.id}
+        )
+        cls.sale_type_analytic = cls.sale_type_model.create(
+            {
+                "name": "Test Sale Order Type With Analytics",
+                "sequence_id": cls.sequence.id,
+                "journal_id": cls.journal.id,
+                "warehouse_id": cls.warehouse.id,
+                "picking_policy": "one",
+                "payment_term_id": cls.immediate_payment.id,
+                "pricelist_id": cls.sale_pricelist.id,
+                "incoterm_id": cls.free_carrier.id,
+                "analytic_distribution": {str(cls.analytic_account.id): 100.0},
+            }
+        )
 
     def create_sale_order(self, partner=False):
         sale_form = Form(self.env["sale.order"])
@@ -159,10 +190,23 @@ class TestSaleOrderType(BaseCommon):
         self.assertEqual(order.payment_term_id, sale_type.payment_term_id)
         self.assertEqual(order.pricelist_id, sale_type.pricelist_id)
         self.assertEqual(order.incoterm, sale_type.incoterm_id)
+        self.assertEqual(order.user_id, sale_type.user_id)
+        self.assertEqual(order.team_id, sale_type.team_id)
         order.action_confirm()
         invoice = order._create_invoices()
         self.assertEqual(invoice.sale_type_id, sale_type)
         self.assertEqual(invoice.journal_id, sale_type.journal_id)
+
+    def test_sale_order_type_user_team_fallback(self):
+        self.assertFalse(self.sale_type_quot.user_id)
+        self.assertFalse(self.sale_type_quot.team_id)
+        partner = self.env["res.partner"].create(
+            {"name": "Partner SOT Quot", "sale_type": self.sale_type_quot.id}
+        )
+        order = self.create_sale_order(partner=partner)
+        self.assertEqual(order.type_id, self.sale_type_quot)
+        self.assertNotEqual(order.user_id, self.salesperson)
+        self.assertNotEqual(order.team_id, self.sales_team)
 
     def test_sale_order_change_partner(self):
         order = self.create_sale_order()
@@ -177,6 +221,16 @@ class TestSaleOrderType(BaseCommon):
             [("company_id", "in", [sale_order.company_id.id, False])], limit=1
         )
         self.assertEqual(sale_order.type_id, sale_type)
+
+    def test_sale_order_default_type_sequence(self):
+        high_sequence_type = self.default_sale_type_id
+        high_sequence_type.sequence = 20
+        low_sequence_type = self.sale_type_quot
+        low_sequence_type.sequence = 1
+
+        sale_order = self.sale_order_model.new()
+
+        self.assertEqual(sale_order.type_id, low_sequence_type)
 
     def test_invoice_onchange_type(self):
         sale_type = self.sale_type
@@ -266,6 +320,26 @@ class TestSaleOrderType(BaseCommon):
         new_partner = self.partner.copy()
         self.assertEqual(self.partner.sale_type, new_partner.sale_type)
 
+    def test_effective_pricelist_id_with_pricelist(self):
+        """effective_pricelist_id resolves to sale_type.pricelist_id when set."""
+        self.partner.sale_type = self.sale_type
+        self.assertEqual(
+            self.partner.effective_pricelist_id, self.sale_type.pricelist_id
+        )
+
+    def test_effective_pricelist_id_without_pricelist(self):
+        """effective_pricelist_id is empty when sale_type has no pricelist set."""
+        sale_type_no_pricelist = self.sale_type_model.create(
+            {"name": "Type without pricelist"}
+        )
+        self.partner.sale_type = sale_type_no_pricelist
+        self.assertFalse(self.partner.effective_pricelist_id)
+
+    def test_effective_pricelist_id_without_sale_type(self):
+        """effective_pricelist_id is empty when the partner has no sale_type."""
+        self.partner.sale_type = False
+        self.assertFalse(self.partner.effective_pricelist_id)
+
     def test_sale_order_type_required(self):
         sale_form = Form(self.env["sale.order"])
         sale_form.partner_id = self.partner
@@ -285,3 +359,12 @@ class TestSaleOrderType(BaseCommon):
             order_line.product_uom_qty = 1.0
         sale_form.type_id = self.sale_type.browse()
         sale_form.save()
+
+    def test_analytic_distribution_propagation(self):
+        self.partner.sale_type = self.sale_type_analytic
+        order = self.create_sale_order()
+        self.assertEqual(order.type_id, self.sale_type_analytic)
+        self.assertEqual(
+            order.order_line[0].analytic_distribution,
+            {str(self.analytic_account.id): 100.0},
+        )
