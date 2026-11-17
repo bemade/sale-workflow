@@ -1,9 +1,13 @@
 # Copyright 2017 ForgeFlow S.L.
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl.html).
 
+from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 
 
+# post_install: account warns when a chart template is loaded before the
+# registry is fully loaded (at_install).
+@tagged("post_install", "-at_install")
 class TestSaleForceInvoiced(TransactionCase):
     @classmethod
     def setUpClass(cls):
